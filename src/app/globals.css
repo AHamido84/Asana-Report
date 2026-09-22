@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --bg: #f9f9f7;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --foreground: #0b0b0b;
+  --muted: #f3f3f1;
+  --muted-foreground: #52514e;
+  --border: #e1e0d9;
+  --primary: #2a78d6;
+  --primary-foreground: #ffffff;
+  --success: #0ca30c;
+  --success-text: #006300;
+  --warning: #fab219;
+  --danger: #d03b3b;
+  --info: #2a78d6;
+
+  /* categorical chart series, fixed order (see dataviz skill) */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #4a3aa7;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-raised: #232322;
+  --foreground: #ffffff;
+  --muted: #232322;
+  --muted-foreground: #c3c2b7;
+  --border: #2c2c2a;
+  --primary: #3987e5;
+  --primary-foreground: #ffffff;
+  --success: #0ca30c;
+  --success-text: #0ca30c;
+  --warning: #fab219;
+  --danger: #e66767;
+  --info: #3987e5;
+
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #9085e9;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  font-family: var(--font-sans);
+}
+
+body {
+  background: var(--bg);
+  color: var(--foreground);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+/* Loading skeleton shimmer */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--muted);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 6%, transparent), transparent);
+  animation: shimmer 1.6s infinite;
+}
+
+[dir="rtl"] .skeleton::after {
+  transform: translateX(100%);
+}
+
+/* Custom scrollbar for a more premium feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
