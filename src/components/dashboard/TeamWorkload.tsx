@@ -32,7 +32,9 @@ export function TeamWorkload({
   onToggleAssignee: (id: string) => void;
 }) {
   const { locale, t } = useLocale();
-  const chartData = workload.slice(0, 12).map((w) => ({ name: w.name, [t("workload.completed")]: w.completed, [t("workload.open")]: w.open }));
+  const chartData = workload
+    .slice(0, 12)
+    .map((w) => ({ name: w.name, [t("workload.completed")]: w.completedOutputCount, [t("workload.open")]: w.pendingOutputCount }));
 
   return (
     <Card>
@@ -73,6 +75,7 @@ export function TeamWorkload({
                   <TR>
                     <TH>{t("filters.assignee")}</TH>
                     <TH>{t("workload.total")}</TH>
+                    <TH>{t("workload.outputs")}</TH>
                     <TH>{t("workload.overdue")}</TH>
                     <TH>{t("workload.completionRate")}</TH>
                   </TR>
@@ -85,18 +88,19 @@ export function TeamWorkload({
                       onClick={() => onToggleAssignee(w.id)}
                     >
                       <TD className="font-medium text-foreground">{w.name}</TD>
-                      <TD className="tabular-nums">{formatNumber(w.total, locale)}</TD>
+                      <TD className="tabular-nums text-muted-foreground">{formatNumber(w.total, locale)}</TD>
+                      <TD className="tabular-nums font-medium">{formatNumber(w.outputCount, locale)}</TD>
                       <TD>
-                        {w.overdue > 0 ? (
-                          <span className="font-medium text-[var(--danger)]">{formatNumber(w.overdue, locale)}</span>
+                        {w.overdueOutputCount > 0 ? (
+                          <span className="font-medium text-[var(--danger)]">{formatNumber(w.overdueOutputCount, locale)}</span>
                         ) : (
                           <span className="text-muted-foreground">0</span>
                         )}
                       </TD>
                       <TD className="w-32">
                         <div className="flex items-center gap-2">
-                          <Progress value={w.completionRate} className="h-1.5 w-16" />
-                          <span className="text-xs tabular-nums text-muted-foreground">{formatPercent(w.completionRate, locale)}</span>
+                          <Progress value={w.outputCompletionRate} className="h-1.5 w-16" />
+                          <span className="text-xs tabular-nums text-muted-foreground">{formatPercent(w.outputCompletionRate, locale)}</span>
                         </div>
                       </TD>
                     </TR>

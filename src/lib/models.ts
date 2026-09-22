@@ -70,6 +70,12 @@ export interface Task {
   parentName: string | null;
   numSubtasks: number;
   isSubtask: boolean;
+  /**
+   * Number of Asana attachments on this task. Drives Output Count via the
+   * single source-of-truth `getOutputCount()` (see lib/analytics/outputs.ts):
+   * 0 attachments still counts as 1 expected output, never 0.
+   */
+  attachmentCount: number;
 }
 
 export interface Project {
@@ -106,4 +112,7 @@ export interface DailySnapshot {
   unassignedTasks: number;
   tasksBySection: Record<string, number>;
   tasksByAssignee: Record<string, number>;
+  /** Output-counted equivalents (see getOutputCount) — captured for future "Outputs by Date" trend charts. */
+  totalOutputs: number;
+  completedOutputs: number;
 }

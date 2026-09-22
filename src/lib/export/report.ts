@@ -1,6 +1,7 @@
 import type { AnalyticsResult } from "../analytics/types";
 import type { Project } from "../models";
 import { formatDate, formatNumber, formatPercent } from "../utils";
+import { getOutputCount } from "../analytics/outputs";
 
 function esc(value: string): string {
   return value
@@ -27,20 +28,30 @@ export function buildExecutiveReportHtml(params: {
     [locale === "ar" ? "متأخرة" : "Overdue", formatNumber(analytics.kpis.overdue, locale)],
     [locale === "ar" ? "مستحقة اليوم" : "Due Today", formatNumber(analytics.kpis.dueToday, locale)],
     [locale === "ar" ? "بدون مسؤول" : "Unassigned", formatNumber(analytics.kpis.unassigned, locale)],
-    [locale === "ar" ? "نسبة الإنجاز" : "Completion Rate", formatPercent(analytics.kpis.completionRate, locale)],
+    [locale === "ar" ? "نسبة الإنجاز (حسب المخرجات)" : "Completion Rate (Outputs)", formatPercent(analytics.kpis.completionRate, locale)],
+  ];
+
+  // Output Counting Business Rule: Attachments > 0 → Outputs = attachments; 0 attachments → 1 output.
+  const outputRows = [
+    [locale === "ar" ? "إجمالي المخرجات" : "Total Outputs", formatNumber(analytics.outputs.totalOutputs, locale)],
+    [locale === "ar" ? "مخرجات مكتملة" : "Completed Outputs", formatNumber(analytics.outputs.completedOutputs, locale)],
+    [locale === "ar" ? "مخرجات معلّقة" : "Pending Outputs", formatNumber(analytics.outputs.pendingOutputs, locale)],
+    [locale === "ar" ? "مخرجات متأخرة" : "Overdue Outputs", formatNumber(analytics.outputs.overdueOutputs, locale)],
+    [locale === "ar" ? "متوسط المخرجات لكل مهمة" : "Average Outputs per Task", formatNumber(analytics.outputs.averageOutputsPerTask, locale)],
+    [locale === "ar" ? "نسبة المهام التي تحتوي مرفقات" : "Attachment Ratio", formatPercent(analytics.outputs.attachmentRatio, locale)],
   ];
 
   const sectionRows = analytics.sections
     .map(
       (s) =>
-        `<tr><td>${esc(s.name)}</td><td>${formatNumber(s.taskCount, locale)}</td><td>${formatPercent(s.shareOfTotal, locale)}</td><td>${formatPercent(s.completionRate, locale)}</td></tr>`
+        `<tr><td>${esc(s.name)}</td><td>${formatNumber(s.taskCount, locale)}</td><td>${formatNumber(s.outputCount, locale)}</td><td>${formatNumber(s.completedOutputCount, locale)}</td><td>${formatNumber(s.pendingOutputCount, locale)}</td><td>${formatPercent(s.outputCompletionRate, locale)}</td></tr>`
     )
     .join("");
 
   const workloadRows = analytics.workload
     .map(
       (w) =>
-        `<tr><td>${esc(w.name)}</td><td>${formatNumber(w.total, locale)}</td><td>${formatNumber(w.completed, locale)}</td><td>${formatNumber(w.open, locale)}</td><td>${formatNumber(w.overdue, locale)}</td></tr>`
+        `<tr><td>${esc(w.name)}</td><td>${formatNumber(w.total, locale)}</td><td>${formatNumber(w.outputCount, locale)}</td><td>${formatNumber(w.completedOutputCount, locale)}</td><td>${formatNumber(w.overdueOutputCount, locale)}</td><td>${formatPercent(w.outputCompletionRate, locale)}</td></tr>`
     )
     .join("");
 
@@ -64,7 +75,7 @@ export function buildExecutiveReportHtml(params: {
     .slice(0, 500)
     .map(
       (t) =>
-        `<tr><td>${esc(t.name)}</td><td>${t.completed ? (locale === "ar" ? "مكتملة" : "Completed") : locale === "ar" ? "مفتوحة" : "Open"}</td><td>${esc(t.assigneeName ?? "—")}</td><td>${esc(t.sectionName ?? "—")}</td><td>${formatDate(t.dueOn, locale)}</td></tr>`
+        `<tr><td>${esc(t.name)}</td><td>${t.completed ? (locale === "ar" ? "مكتملة" : "Completed") : locale === "ar" ? "مفتوحة" : "Open"}</td><td>${esc(t.assigneeName ?? "—")}</td><td>${esc(t.sectionName ?? "—")}</td><td>${formatDate(t.dueOn, locale)}</td><td>${formatNumber(getOutputCount(t), locale)}</td></tr>`
     )
     .join("");
 
@@ -96,11 +107,14 @@ export function buildExecutiveReportHtml(params: {
   <h2>${t("KPI Summary", "ملخص المؤشرات")}</h2>
   <table><tbody>${kpiRows.map(([label, value]) => `<tr><td>${label}</td><td><strong>${value}</strong></td></tr>`).join("")}</tbody></table>
 
-  <h2>${t("Workflow Distribution", "توزيع المهام على مراحل العمل")}</h2>
-  <table><thead><tr><th>${t("Section", "القسم")}</th><th>${t("Tasks", "المهام")}</th><th>${t("Share", "النسبة")}</th><th>${t("Completion", "نسبة الإنجاز")}</th></tr></thead><tbody>${sectionRows}</tbody></table>
+  <h2>${t("Outputs Summary", "ملخص المخرجات")}</h2>
+  <table><tbody>${outputRows.map(([label, value]) => `<tr><td>${label}</td><td><strong>${value}</strong></td></tr>`).join("")}</tbody></table>
 
-  <h2>${t("Team Workload", "توزيع العمل على الفريق")}</h2>
-  <table><thead><tr><th>${t("Member", "العضو")}</th><th>${t("Total", "الإجمالي")}</th><th>${t("Completed", "مكتملة")}</th><th>${t("Open", "مفتوحة")}</th><th>${t("Overdue", "متأخرة")}</th></tr></thead><tbody>${workloadRows}</tbody></table>
+  <h2>${t("Outputs by Type", "المخرجات حسب النوع")}</h2>
+  <table><thead><tr><th>${t("Type", "النوع")}</th><th>${t("Tasks", "المهام")}</th><th>${t("Outputs", "المخرجات")}</th><th>${t("Completed Outputs", "مخرجات مكتملة")}</th><th>${t("Pending Outputs", "مخرجات معلّقة")}</th><th>${t("Completion Rate", "نسبة الإنجاز")}</th></tr></thead><tbody>${sectionRows}</tbody></table>
+
+  <h2>${t("Team Workload (Outputs)", "توزيع العمل على الفريق (المخرجات)")}</h2>
+  <table><thead><tr><th>${t("Member", "العضو")}</th><th>${t("Tasks", "المهام")}</th><th>${t("Outputs", "المخرجات")}</th><th>${t("Completed Outputs", "مخرجات مكتملة")}</th><th>${t("Overdue Outputs", "مخرجات متأخرة")}</th><th>${t("Completion Rate", "نسبة الإنجاز")}</th></tr></thead><tbody>${workloadRows}</tbody></table>
 
   <h2>${t("Overdue Tasks", "المهام المتأخرة")}</h2>
   <table><thead><tr><th>${t("Task", "المهمة")}</th><th>${t("Assignee", "المسؤول")}</th><th>${t("Section", "القسم")}</th><th>${t("Due Date", "تاريخ الاستحقاق")}</th><th>${t("Days Overdue", "أيام التأخير")}</th></tr></thead><tbody>${overdueRows || `<tr><td colspan="5">${t("No overdue tasks", "لا توجد مهام متأخرة")}</td></tr>`}</tbody></table>
@@ -109,7 +123,7 @@ export function buildExecutiveReportHtml(params: {
   <table><thead><tr><th>${t("Task", "المهمة")}</th><th>${t("Assignee", "المسؤول")}</th><th>${t("Section", "القسم")}</th><th>${t("Due Date", "تاريخ الاستحقاق")}</th><th>${t("Days Remaining", "الأيام المتبقية")}</th></tr></thead><tbody>${upcomingRows || `<tr><td colspan="5">${t("No upcoming tasks", "لا توجد أعمال قادمة")}</td></tr>`}</tbody></table>
 
   <h2>${t("Task Details", "تفاصيل المهام")} ${analytics.tasks.length > 500 ? t("(first 500 shown)", "(أول 500 مهمة)") : ""}</h2>
-  <table><thead><tr><th>${t("Task", "المهمة")}</th><th>${t("Status", "الحالة")}</th><th>${t("Assignee", "المسؤول")}</th><th>${t("Section", "القسم")}</th><th>${t("Due Date", "تاريخ الاستحقاق")}</th></tr></thead><tbody>${taskDetailRows}</tbody></table>
+  <table><thead><tr><th>${t("Task", "المهمة")}</th><th>${t("Status", "الحالة")}</th><th>${t("Assignee", "المسؤول")}</th><th>${t("Section", "القسم")}</th><th>${t("Due Date", "تاريخ الاستحقاق")}</th><th>${t("Outputs", "المخرجات")}</th></tr></thead><tbody>${taskDetailRows}</tbody></table>
 </body>
 </html>`;
 }

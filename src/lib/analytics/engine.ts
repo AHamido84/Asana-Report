@@ -5,9 +5,12 @@ import {
   endOfMonthKey,
   formatNumber,
   formatPercent,
+  pct,
   startOfMonthKey,
   startOfWeekKey,
 } from "../utils";
+import { isDueToday, isOverdue, isUpcoming } from "./status";
+import { computeOutputTotals, getOutputCount } from "./outputs";
 import type {
   AgingBucket,
   AgingBucketKey,
@@ -16,6 +19,7 @@ import type {
   DashboardFilters,
   Insight,
   Kpis,
+  OutputTotals,
   OverdueRow,
   SectionBreakdown,
   StatusFilterValue,
@@ -27,22 +31,7 @@ import type {
 
 type Locale = "en" | "ar";
 
-function pct(part: number, total: number): number {
-  if (total <= 0) return 0;
-  return Math.min(100, Math.round((part / total) * 100));
-}
-
-export function isOverdue(task: Task, today: string): boolean {
-  return !task.completed && !!task.dueOn && task.dueOn < today;
-}
-
-export function isDueToday(task: Task, today: string): boolean {
-  return !task.completed && task.dueOn === today;
-}
-
-export function isUpcoming(task: Task, today: string): boolean {
-  return !task.completed && !!task.dueOn && task.dueOn > today;
-}
+export { isDueToday, isOverdue, isUpcoming };
 
 function matchesDateRange(task: Task, filters: DashboardFilters, today: string): boolean {
   const { dateRange } = filters;
@@ -131,7 +120,12 @@ export function applyStatusFilter(tasks: Task[], statuses: StatusFilterValue[], 
   return tasks.filter((task) => statuses.some((s) => matchesStatus(task, s, today)));
 }
 
-export function computeKpis(tasks: Task[], today: string): Kpis {
+/**
+ * `outputCompletionRate` is threaded in from `computeOutputTotals()` rather
+ * than computed here — per the Output Counting Business Rule, Completion
+ * Rate is always Completed Outputs / Total Outputs, never a task ratio.
+ */
+export function computeKpis(tasks: Task[], today: string, outputCompletionRate: number): Kpis {
   const total = tasks.length;
   const completed = tasks.filter((t) => t.completed).length;
   const overdue = tasks.filter((t) => isOverdue(t, today)).length;
@@ -147,13 +141,41 @@ export function computeKpis(tasks: Task[], today: string): Kpis {
     overdue,
     dueToday,
     dueThisWeek,
-    completionRate: pct(completed, total),
+    completionRate: outputCompletionRate,
     unassigned,
+  };
+}
+
+/** Builds one SectionBreakdown row — sections double as Deliverable Types. */
+function buildSectionBreakdown(id: string, name: string, position: number, sectionTasks: Task[], totalTasks: number, totalOutputs: number): SectionBreakdown {
+  const completedCount = sectionTasks.filter((t) => t.completed).length;
+  let outputCount = 0;
+  let completedOutputCount = 0;
+  for (const task of sectionTasks) {
+    const count = getOutputCount(task);
+    outputCount += count;
+    if (task.completed) completedOutputCount += count;
+  }
+
+  return {
+    id,
+    name,
+    position,
+    taskCount: sectionTasks.length,
+    shareOfTotal: pct(sectionTasks.length, totalTasks),
+    completedCount,
+    completionRate: pct(completedCount, sectionTasks.length),
+    outputCount,
+    outputShareOfTotal: pct(outputCount, totalOutputs),
+    completedOutputCount,
+    pendingOutputCount: outputCount - completedOutputCount,
+    outputCompletionRate: pct(completedOutputCount, outputCount),
   };
 }
 
 export function computeSections(tasks: Task[], sections: Section[]): SectionBreakdown[] {
   const total = tasks.length;
+  const totalOutputs = tasks.reduce((sum, t) => sum + getOutputCount(t), 0);
   const grouped = new Map<string, Task[]>();
   const noSectionKey = "__no_section__";
 
@@ -163,32 +185,13 @@ export function computeSections(tasks: Task[], sections: Section[]): SectionBrea
     grouped.get(key)!.push(task);
   }
 
-  const result: SectionBreakdown[] = sections.map((section) => {
-    const sectionTasks = grouped.get(section.id) ?? [];
-    const completedCount = sectionTasks.filter((t) => t.completed).length;
-    return {
-      id: section.id,
-      name: section.name,
-      position: section.position,
-      taskCount: sectionTasks.length,
-      shareOfTotal: pct(sectionTasks.length, total),
-      completedCount,
-      completionRate: pct(completedCount, sectionTasks.length),
-    };
-  });
+  const result: SectionBreakdown[] = sections.map((section) =>
+    buildSectionBreakdown(section.id, section.name, section.position, grouped.get(section.id) ?? [], total, totalOutputs)
+  );
 
   const orphanTasks = grouped.get(noSectionKey);
   if (orphanTasks && orphanTasks.length > 0) {
-    const completedCount = orphanTasks.filter((t) => t.completed).length;
-    result.push({
-      id: noSectionKey,
-      name: "No Section",
-      position: sections.length,
-      taskCount: orphanTasks.length,
-      shareOfTotal: pct(orphanTasks.length, total),
-      completedCount,
-      completionRate: pct(completedCount, orphanTasks.length),
-    });
+    result.push(buildSectionBreakdown(noSectionKey, "No Section", sections.length, orphanTasks, total, totalOutputs));
   }
 
   return result.sort((a, b) => a.position - b.position);
@@ -206,6 +209,17 @@ export function computeWorkload(tasks: Task[], users: DashboardUser[], today: st
     .map((user) => {
       const userTasks = grouped.get(user.id) ?? [];
       const completed = userTasks.filter((t) => t.completed).length;
+
+      let outputCount = 0;
+      let completedOutputCount = 0;
+      let overdueOutputCount = 0;
+      for (const task of userTasks) {
+        const count = getOutputCount(task);
+        outputCount += count;
+        if (task.completed) completedOutputCount += count;
+        if (isOverdue(task, today)) overdueOutputCount += count;
+      }
+
       return {
         id: user.id,
         name: user.name,
@@ -215,10 +229,15 @@ export function computeWorkload(tasks: Task[], users: DashboardUser[], today: st
         overdue: userTasks.filter((t) => isOverdue(t, today)).length,
         dueToday: userTasks.filter((t) => isDueToday(t, today)).length,
         completionRate: pct(completed, userTasks.length),
+        outputCount,
+        completedOutputCount,
+        pendingOutputCount: outputCount - completedOutputCount,
+        overdueOutputCount,
+        outputCompletionRate: pct(completedOutputCount, outputCount),
       };
     })
     .filter((w) => w.total > 0)
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => b.outputCount - a.outputCount);
 }
 
 const AGING_BUCKETS: { key: AgingBucketKey; label: string; min: number; max: number }[] = [
@@ -303,52 +322,53 @@ export function computeInsights(params: {
   kpis: Kpis;
   sections: SectionBreakdown[];
   workload: AssigneeWorkload[];
+  outputs: OutputTotals;
   missingDueDateCount: number;
   locale: Locale;
 }): Insight[] {
-  const { kpis, sections, workload, missingDueDateCount, locale } = params;
+  const { kpis, sections, workload, outputs, missingDueDateCount, locale } = params;
   const insights: Insight[] = [];
   const t = (en: string, ar: string) => (locale === "ar" ? ar : en);
 
   if (kpis.total === 0) return insights;
 
-  const openSections = sections.filter((s) => s.taskCount - s.completedCount > 0);
+  const openSections = sections.filter((s) => s.outputCount - s.completedOutputCount > 0);
   const busiestSection = [...openSections].sort(
-    (a, b) => b.taskCount - b.completedCount - (a.taskCount - a.completedCount)
+    (a, b) => b.outputCount - b.completedOutputCount - (a.outputCount - a.completedOutputCount)
   )[0];
   if (busiestSection) {
-    const open = busiestSection.taskCount - busiestSection.completedCount;
+    const openOutputs = busiestSection.outputCount - busiestSection.completedOutputCount;
     insights.push({
       id: "busiest-section",
       tone: "neutral",
       text: t(
-        `There is a high concentration of open tasks in "${busiestSection.name}" (${open} open, ${formatNumber(busiestSection.shareOfTotal, locale)}% of all tasks).`,
-        `يوجد تركّز مرتفع للمهام المفتوحة في قسم "${busiestSection.name}" (${formatNumber(open, locale)} مهمة مفتوحة، تمثل ${formatNumber(busiestSection.shareOfTotal, locale)}% من إجمالي المهام).`
+        `There is a high concentration of pending outputs in "${busiestSection.name}" (${openOutputs} pending, ${formatNumber(busiestSection.outputShareOfTotal, locale)}% of all outputs).`,
+        `يوجد تركّز مرتفع للمخرجات المعلّقة في قسم "${busiestSection.name}" (${formatNumber(openOutputs, locale)} مخرج معلّق، يمثل ${formatNumber(busiestSection.outputShareOfTotal, locale)}% من إجمالي المخرجات).`
       ),
     });
   }
 
   if (workload.length > 0) {
-    const busiest = [...workload].sort((a, b) => b.open - a.open)[0]!;
-    if (busiest.open > 0) {
+    const busiest = [...workload].sort((a, b) => b.pendingOutputCount - a.pendingOutputCount)[0]!;
+    if (busiest.pendingOutputCount > 0) {
       insights.push({
         id: "busiest-assignee",
         tone: "neutral",
         text: t(
-          `${busiest.name} currently holds the largest open workload (${busiest.open} open tasks).`,
-          `يحمل ${busiest.name} حاليًا أكبر عدد من المهام المفتوحة (${formatNumber(busiest.open, locale)} مهمة).`
+          `${busiest.name} currently holds the largest pending output workload (${busiest.pendingOutputCount} pending outputs).`,
+          `يحمل ${busiest.name} حاليًا أكبر عدد من المخرجات المعلّقة (${formatNumber(busiest.pendingOutputCount, locale)} مخرج).`
         ),
       });
     }
   }
 
-  if (kpis.overdue > 0) {
+  if (outputs.overdueOutputs > 0) {
     insights.push({
       id: "overdue-count",
       tone: "attention",
       text: t(
-        `${kpis.overdue} task${kpis.overdue === 1 ? "" : "s"} ${kpis.overdue === 1 ? "is" : "are"} past due and require follow-up.`,
-        `توجد ${formatNumber(kpis.overdue, locale)} مهمة متأخرة عن موعدها وتحتاج إلى متابعة.`
+        `${outputs.overdueOutputs} output${outputs.overdueOutputs === 1 ? "" : "s"} across ${kpis.overdue} task${kpis.overdue === 1 ? "" : "s"} ${kpis.overdue === 1 ? "is" : "are"} past due and require follow-up.`,
+        `توجد ${formatNumber(outputs.overdueOutputs, locale)} مخرج متأخر عبر ${formatNumber(kpis.overdue, locale)} مهمة متأخرة تحتاج إلى متابعة.`
       ),
     });
   }
@@ -375,10 +395,27 @@ export function computeInsights(params: {
     });
   }
 
+  if (outputs.tasksWithoutAttachments > 0) {
+    insights.push({
+      id: "attachment-coverage",
+      tone: "neutral",
+      text: t(
+        `${outputs.tasksWithoutAttachments} task${outputs.tasksWithoutAttachments === 1 ? "" : "s"} (${formatPercent(100 - outputs.attachmentRatio, locale)} of all tasks) have no file attached yet — each still counts as one expected output.`,
+        `توجد ${formatNumber(outputs.tasksWithoutAttachments, locale)} مهمة (${formatPercent(100 - outputs.attachmentRatio, locale)} من إجمالي المهام) بدون ملف مرفق بعد — وتُحتسب كل واحدة كمخرج متوقع واحد.`
+      ),
+    });
+  }
+
   return insights;
 }
 
-export function generateExecutiveSummary(kpis: Kpis, locale: Locale): string {
+/**
+ * Executive summary text is generated entirely from computed numbers —
+ * Total/Completed/Pending/Overdue Outputs and the output-based Completion
+ * Rate — never invented. See lib/analytics/outputs.ts for how each figure
+ * is derived.
+ */
+export function generateExecutiveSummary(kpis: Kpis, outputs: OutputTotals, locale: Locale): string {
   if (kpis.total === 0) {
     return locale === "ar"
       ? "لا توجد بيانات كافية لعرض ملخص تنفيذي حاليًا."
@@ -387,17 +424,19 @@ export function generateExecutiveSummary(kpis: Kpis, locale: Locale): string {
 
   if (locale === "ar") {
     return (
-      `يوجد حاليًا ${formatNumber(kpis.total, locale)} مهمة، تم إنجاز ${formatNumber(kpis.completed, locale)} منها ` +
-      `(نسبة الإنجاز ${formatPercent(kpis.completionRate, locale)})، بينما توجد ${formatNumber(kpis.inProgress, locale)} مهمة مفتوحة. ` +
-      `${formatNumber(kpis.overdue, locale)} مهمة متأخرة و${formatNumber(kpis.dueToday, locale)} مهمة مستحقة اليوم` +
+      `يوجد حاليًا ${formatNumber(kpis.total, locale)} مهمة تمثل ${formatNumber(outputs.totalOutputs, locale)} مخرج، ` +
+      `تم إنجاز ${formatNumber(outputs.completedOutputs, locale)} مخرج منها (نسبة الإنجاز ${formatPercent(kpis.completionRate, locale)} من إجمالي المخرجات)، ` +
+      `بينما يوجد ${formatNumber(outputs.pendingOutputs, locale)} مخرج معلّق. ` +
+      `${formatNumber(outputs.overdueOutputs, locale)} مخرج متأخر (عبر ${formatNumber(kpis.overdue, locale)} مهمة) و${formatNumber(kpis.dueToday, locale)} مهمة مستحقة اليوم` +
       `${kpis.unassigned > 0 ? `، و${formatNumber(kpis.unassigned, locale)} مهمة بدون مسؤول مُسند.` : "."}`
     );
   }
 
   return (
-    `There are currently ${formatNumber(kpis.total, locale)} tasks, with ${formatNumber(kpis.completed, locale)} completed ` +
-    `(${formatPercent(kpis.completionRate, locale)} completion rate) and ${formatNumber(kpis.inProgress, locale)} open. ` +
-    `${formatNumber(kpis.overdue, locale)} task${kpis.overdue === 1 ? " is" : "s are"} overdue and ${formatNumber(kpis.dueToday, locale)} ${kpis.dueToday === 1 ? "is" : "are"} due today` +
+    `There are currently ${formatNumber(kpis.total, locale)} tasks representing ${formatNumber(outputs.totalOutputs, locale)} outputs, ` +
+    `with ${formatNumber(outputs.completedOutputs, locale)} outputs completed (${formatPercent(kpis.completionRate, locale)} completion rate based on outputs) ` +
+    `and ${formatNumber(outputs.pendingOutputs, locale)} outputs pending. ` +
+    `${formatNumber(outputs.overdueOutputs, locale)} output${outputs.overdueOutputs === 1 ? " is" : "s are"} overdue (across ${formatNumber(kpis.overdue, locale)} task${kpis.overdue === 1 ? "" : "s"}) and ${formatNumber(kpis.dueToday, locale)} task${kpis.dueToday === 1 ? " is" : "s are"} due today` +
     `${kpis.unassigned > 0 ? `, with ${formatNumber(kpis.unassigned, locale)} unassigned.` : "."}`
   );
 }
@@ -429,6 +468,8 @@ export function computeTrend(snapshots: DailySnapshot[], granularity: TrendGranu
       completedTasks: snap.completedTasks,
       totalTasks: snap.totalTasks,
       openTasks: snap.openTasks,
+      completedOutputs: snap.completedOutputs,
+      totalOutputs: snap.totalOutputs,
     }));
 
   return { hasEnoughData: points.length >= 2, points, granularity };
@@ -454,15 +495,19 @@ export function computeAnalytics(params: ComputeAnalyticsParams): AnalyticsResul
   const preStatusTasks = applyFilters(dataset.tasks, filters, today);
   const finalTasks = applyStatusFilter(preStatusTasks, filters.statuses, today);
 
-  const kpis = computeKpis(preStatusTasks, today);
+  // Outputs are computed first — Kpis.completionRate and the executive
+  // summary/insights are derived from these, per the Output Counting
+  // Business Rule (lib/analytics/outputs.ts), not from task counts.
+  const outputs = computeOutputTotals(preStatusTasks, today);
+  const kpis = computeKpis(preStatusTasks, today, outputs.completionRate);
   const sections = computeSections(preStatusTasks, dataset.sections);
   const workload = computeWorkload(preStatusTasks, dataset.users, today);
   const aging = computeAging(preStatusTasks, today);
   const overdueRows = computeOverdueRows(preStatusTasks, today);
   const upcomingRows = computeUpcomingRows(preStatusTasks, today);
   const missingDueDateCount = computeMissingDueDateCount(preStatusTasks);
-  const insights = computeInsights({ kpis, sections, workload, missingDueDateCount, locale });
-  const executiveSummary = generateExecutiveSummary(kpis, locale);
+  const insights = computeInsights({ kpis, sections, workload, outputs, missingDueDateCount, locale });
+  const executiveSummary = generateExecutiveSummary(kpis, outputs, locale);
   const trend = computeTrend(snapshots, trendGranularity);
 
   return {
@@ -479,5 +524,6 @@ export function computeAnalytics(params: ComputeAnalyticsParams): AnalyticsResul
     executiveSummary,
     trend,
     tasks: finalTasks,
+    outputs,
   };
 }

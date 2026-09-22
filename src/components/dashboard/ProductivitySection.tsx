@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Bar,
   BarChart,
@@ -14,7 +15,8 @@ import {
 import { useLocale } from "@/context/LocaleProvider";
 import { Card, CardContent, CardHeader, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Select } from "@/components/ui/Select";
-import type { SectionBreakdown, TrendGranularity, AnalyticsResult } from "@/lib/analytics/types";
+import { Button } from "@/components/ui/Button";
+import type { SectionBreakdown, TrendGranularity, TrendMetric, AnalyticsResult } from "@/lib/analytics/types";
 import { formatDate, formatNumber } from "@/lib/utils";
 
 function ChartTooltip({ active, payload, label, locale }: any) {
@@ -43,9 +45,14 @@ export function ProductivitySection({
   onGranularityChange: (g: TrendGranularity) => void;
 }) {
   const { locale, t } = useLocale();
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>("outputs");
 
-  const sectionData = sections.map((s) => ({ name: s.name, tasks: s.taskCount }));
-  const trendData = trend.points.map((p) => ({ label: formatDate(p.date, locale), completed: p.completedTasks, total: p.totalTasks }));
+  const sectionData = sections.map((s) => ({ name: s.name, [t("common.tasks")]: s.taskCount, [t("outputs.unit")]: s.outputCount }));
+  const trendData = trend.points.map((p) => ({
+    label: formatDate(p.date, locale),
+    completed: trendMetric === "outputs" ? p.completedOutputs : p.completedTasks,
+    total: trendMetric === "outputs" ? p.totalOutputs : p.totalTasks,
+  }));
 
   return (
     <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -55,11 +62,21 @@ export function ProductivitySection({
             <CardTitle>{t("productivity.trendTitle")}</CardTitle>
             <CardSubtitle>{t("productivity.title")}</CardSubtitle>
           </div>
-          <Select value={granularity} onChange={(e) => onGranularityChange(e.target.value as TrendGranularity)}>
-            <option value="daily">{t("productivity.daily")}</option>
-            <option value="weekly">{t("productivity.weekly")}</option>
-            <option value="monthly">{t("productivity.monthly")}</option>
-          </Select>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              <Button size="sm" variant={trendMetric === "tasks" ? "primary" : "outline"} onClick={() => setTrendMetric("tasks")}>
+                {t("productivity.viewTasks")}
+              </Button>
+              <Button size="sm" variant={trendMetric === "outputs" ? "primary" : "outline"} onClick={() => setTrendMetric("outputs")}>
+                {t("productivity.viewOutputs")}
+              </Button>
+            </div>
+            <Select value={granularity} onChange={(e) => onGranularityChange(e.target.value as TrendGranularity)}>
+              <option value="daily">{t("productivity.daily")}</option>
+              <option value="weekly">{t("productivity.weekly")}</option>
+              <option value="monthly">{t("productivity.monthly")}</option>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent>
           {trend.hasEnoughData ? (
@@ -108,7 +125,8 @@ export function ProductivitySection({
                     tickLine={false}
                   />
                   <RechartsTooltip content={<ChartTooltip locale={locale} />} />
-                  <Bar dataKey="tasks" name={t("common.tasks")} fill="var(--chart-1)" radius={[0, 4, 4, 0]} maxBarSize={18} />
+                  <Bar dataKey={t("common.tasks")} fill="var(--chart-2)" radius={[0, 4, 4, 0]} maxBarSize={14} />
+                  <Bar dataKey={t("outputs.unit")} fill="var(--chart-1)" radius={[0, 4, 4, 0]} maxBarSize={14} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

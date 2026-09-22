@@ -94,6 +94,10 @@ export interface AsanaTaskRaw {
   num_subtasks?: number;
 }
 
+export interface AsanaAttachmentRaw {
+  gid: string;
+}
+
 export interface AsanaErrorResponse {
   errors: { message: string; help?: string }[];
 }

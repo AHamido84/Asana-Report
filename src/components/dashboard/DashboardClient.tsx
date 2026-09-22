@@ -7,6 +7,7 @@ import { Header } from "./Header";
 import { SyncOverlay } from "./SyncOverlay";
 import { FilterBar } from "./FilterBar";
 import { KpiSection } from "./KpiSection";
+import { OutputsOverview } from "./OutputsOverview";
 import { WorkflowOverview } from "./WorkflowOverview";
 import { ProductivitySection } from "./ProductivitySection";
 import { TeamWorkload } from "./TeamWorkload";
@@ -129,6 +130,8 @@ export function DashboardClient({ title, companyName }: { title: string; company
             <ExecutiveSummary summary={payload.analytics.executiveSummary} />
 
             <KpiSection kpis={payload.analytics.kpis} filters={filters} onChange={updateFilters} />
+
+            <OutputsOverview outputs={payload.analytics.outputs} filters={filters} onChange={updateFilters} />
 
             <WorkflowOverview
               sections={payload.analytics.sections}

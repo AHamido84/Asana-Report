@@ -7,9 +7,10 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn, diffInDays, formatDate, formatDateTime, formatNumber } from "@/lib/utils";
+import { getOutputCount } from "@/lib/analytics/outputs";
 import type { Task, CustomFieldDefinition } from "@/lib/models";
 
-type SortKey = "name" | "assignee" | "section" | "status" | "dueOn" | "age" | "modifiedAt";
+type SortKey = "name" | "assignee" | "section" | "status" | "dueOn" | "age" | "modifiedAt" | "outputs";
 type ColumnKey = SortKey | "tags" | "asana";
 
 const BASE_COLUMNS: { key: ColumnKey; labelKey: string; defaultVisible: boolean }[] = [
@@ -19,6 +20,7 @@ const BASE_COLUMNS: { key: ColumnKey; labelKey: string; defaultVisible: boolean 
   { key: "status", labelKey: "table.colStatus", defaultVisible: true },
   { key: "dueOn", labelKey: "table.colDueDate", defaultVisible: true },
   { key: "age", labelKey: "table.colAge", defaultVisible: true },
+  { key: "outputs", labelKey: "table.colOutputs", defaultVisible: true },
   { key: "modifiedAt", labelKey: "table.colLastModified", defaultVisible: false },
   { key: "tags", labelKey: "table.colTags", defaultVisible: false },
   { key: "asana", labelKey: "table.colAsana", defaultVisible: true },
@@ -77,6 +79,8 @@ export function TaskTable({
           return (diffInDays(a.createdAt.slice(0, 10), referenceDate) - diffInDays(b.createdAt.slice(0, 10), referenceDate)) * dir;
         case "modifiedAt":
           return (a.modifiedAt > b.modifiedAt ? 1 : -1) * dir;
+        case "outputs":
+          return (getOutputCount(a) - getOutputCount(b)) * dir;
         default:
           return 0;
       }
@@ -206,6 +210,12 @@ export function TaskTable({
                         {sortIndicator("age")}
                       </TH>
                     )}
+                    {visibleColumns.has("outputs") && (
+                      <TH className="cursor-pointer select-none" onClick={() => toggleSort("outputs")}>
+                        {t("table.colOutputs")}
+                        {sortIndicator("outputs")}
+                      </TH>
+                    )}
                     {visibleColumns.has("modifiedAt") && (
                       <TH className="cursor-pointer select-none" onClick={() => toggleSort("modifiedAt")}>
                         {t("table.colLastModified")}
@@ -246,6 +256,11 @@ export function TaskTable({
                         <TD className="tabular-nums">
                           {formatNumber(Math.max(0, diffInDays(task.createdAt.slice(0, 10), referenceDate)), locale)}{" "}
                           {t("common.days")}
+                        </TD>
+                      )}
+                      {visibleColumns.has("outputs") && (
+                        <TD className="tabular-nums font-medium" title={`${task.attachmentCount} attachment${task.attachmentCount === 1 ? "" : "s"}`}>
+                          {formatNumber(getOutputCount(task), locale)}
                         </TD>
                       )}
                       {visibleColumns.has("modifiedAt") && <TD>{formatDateTime(task.modifiedAt, locale)}</TD>}

@@ -72,7 +72,7 @@ export function normalizeSections(raw: AsanaSectionRaw[]): Section[] {
   return raw.map((s, index) => ({ id: s.gid, name: s.name, position: index }));
 }
 
-export function normalizeTask(raw: AsanaTaskRaw, projectGid: string): Task {
+export function normalizeTask(raw: AsanaTaskRaw, projectGid: string, attachmentCount = 0): Task {
   const membership = raw.memberships?.find((m) => m.project?.gid === projectGid);
 
   return {
@@ -96,11 +96,16 @@ export function normalizeTask(raw: AsanaTaskRaw, projectGid: string): Task {
     parentName: raw.parent?.name ?? null,
     numSubtasks: raw.num_subtasks ?? 0,
     isSubtask: Boolean(raw.parent),
+    attachmentCount,
   };
 }
 
-export function normalizeTasks(raw: AsanaTaskRaw[], projectGid: string): Task[] {
-  return raw.map((t) => normalizeTask(t, projectGid));
+export function normalizeTasks(
+  raw: AsanaTaskRaw[],
+  projectGid: string,
+  attachmentCounts: Map<string, number> = new Map()
+): Task[] {
+  return raw.map((t) => normalizeTask(t, projectGid, attachmentCounts.get(t.gid) ?? 0));
 }
 
 /** Derives the distinct set of users from task assignees — no separate roster call needed. */
@@ -169,10 +174,11 @@ export function buildDataset(params: {
   rawTasks: AsanaTaskRaw[];
   customFieldSettings: AsanaCustomFieldSettingRaw[];
   projectGid: string;
+  attachmentCounts?: Map<string, number>;
 }): NormalizedDataset {
   const project = normalizeProject(params.project);
   const sections = normalizeSections(params.sections);
-  const tasks = normalizeTasks(params.rawTasks, params.projectGid);
+  const tasks = normalizeTasks(params.rawTasks, params.projectGid, params.attachmentCounts);
   const users = deriveUsers(tasks);
   const tags = deriveTags(tasks);
   const customFieldDefinitions = deriveCustomFieldDefinitions(params.customFieldSettings, tasks);

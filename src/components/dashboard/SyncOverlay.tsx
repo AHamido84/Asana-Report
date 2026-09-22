@@ -9,6 +9,7 @@ const STAGES = [
   "fetching_sections",
   "fetching_tasks",
   "fetching_custom_fields",
+  "fetching_attachments",
   "calculating",
   "done",
 ] as const;

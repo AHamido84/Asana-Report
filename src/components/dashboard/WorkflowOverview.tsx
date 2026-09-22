@@ -3,6 +3,7 @@
 import { useLocale } from "@/context/LocaleProvider";
 import { Card, CardContent, CardHeader, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Progress } from "@/components/ui/Progress";
+import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { cn, formatNumber, formatPercent } from "@/lib/utils";
 import type { SectionBreakdown } from "@/lib/analytics/types";
 
@@ -39,7 +40,7 @@ export function WorkflowOverview({
                   <button
                     onClick={() => onToggleSection(section.id)}
                     className={cn(
-                      "flex min-w-[128px] flex-col gap-1 rounded-md border border-border px-3 py-2 text-start transition-all hover:-translate-y-0.5",
+                      "flex min-w-[136px] flex-col gap-1 rounded-md border border-border px-3 py-2 text-start transition-all hover:-translate-y-0.5",
                       activeSectionIds.includes(section.id) && "ring-2 ring-primary"
                     )}
                     style={{ borderTopColor: CHART_COLORS[i % CHART_COLORS.length], borderTopWidth: 3 }}
@@ -47,7 +48,7 @@ export function WorkflowOverview({
                     <span className="truncate text-xs font-medium text-foreground">{section.name}</span>
                     <span className="text-lg font-semibold tabular-nums">{formatNumber(section.taskCount, locale)}</span>
                     <span className="text-[11px] text-muted-foreground">
-                      {formatPercent(section.shareOfTotal, locale)} {t("common.of")} {t("common.tasks")}
+                      {t("common.tasks")} · {formatNumber(section.outputCount, locale)} {t("outputs.unit")}
                     </span>
                   </button>
                   {i < sections.length - 1 && (
@@ -59,28 +60,48 @@ export function WorkflowOverview({
               ))}
             </div>
 
-            {/* Detailed breakdown */}
-            <div className="space-y-3">
-              {sections.map((section, i) => (
-                <button
-                  key={section.id}
-                  onClick={() => onToggleSection(section.id)}
-                  className={cn(
-                    "block w-full rounded-md p-2 text-start transition-colors hover:bg-muted",
-                    activeSectionIds.includes(section.id) && "bg-muted"
-                  )}
-                >
-                  <div className="mb-1 flex items-center justify-between text-xs">
-                    <span className="font-medium text-foreground">{section.name}</span>
-                    <span className="text-muted-foreground tabular-nums">
-                      {formatNumber(section.taskCount, locale)} {t("common.tasks")} · {t("workflow.completion")}{" "}
-                      {formatPercent(section.completionRate, locale)}
-                    </span>
-                  </div>
-                  <Progress value={section.completionRate} color={CHART_COLORS[i % CHART_COLORS.length]} />
-                </button>
-              ))}
-            </div>
+            {/* Outputs by Type — Type | Tasks | Outputs | Completed Outputs | Pending Outputs | Completion Rate */}
+            <Table>
+              <THead>
+                <TR>
+                  <TH>{t("workflow.colType")}</TH>
+                  <TH>{t("workflow.colTasks")}</TH>
+                  <TH>{t("workflow.colOutputs")}</TH>
+                  <TH>{t("workflow.colCompletedOutputs")}</TH>
+                  <TH>{t("workflow.colPendingOutputs")}</TH>
+                  <TH>{t("workflow.colCompletionRate")}</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {sections.map((section, i) => (
+                  <TR
+                    key={section.id}
+                    className={cn("cursor-pointer", activeSectionIds.includes(section.id) && "bg-muted")}
+                    onClick={() => onToggleSection(section.id)}
+                  >
+                    <TD className="font-medium text-foreground">
+                      <span
+                        className="me-2 inline-block h-2 w-2 rounded-full align-middle"
+                        style={{ background: CHART_COLORS[i % CHART_COLORS.length] }}
+                      />
+                      {section.name}
+                    </TD>
+                    <TD className="tabular-nums">{formatNumber(section.taskCount, locale)}</TD>
+                    <TD className="tabular-nums font-medium">{formatNumber(section.outputCount, locale)}</TD>
+                    <TD className="tabular-nums text-[var(--success-text)]">{formatNumber(section.completedOutputCount, locale)}</TD>
+                    <TD className="tabular-nums">{formatNumber(section.pendingOutputCount, locale)}</TD>
+                    <TD className="w-36">
+                      <div className="flex items-center gap-2">
+                        <Progress value={section.outputCompletionRate} className="h-1.5 w-16" color={CHART_COLORS[i % CHART_COLORS.length]} />
+                        <span className="text-xs tabular-nums text-muted-foreground">
+                          {formatPercent(section.outputCompletionRate, locale)}
+                        </span>
+                      </div>
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
           </>
         )}
       </CardContent>

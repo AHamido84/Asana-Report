@@ -5,6 +5,12 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
+/** Percentage of `part` over `total`, safe against division by zero, capped at 100. */
+export function pct(part: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.min(100, Math.round((part / total) * 100));
+}
+
 /** Returns today's date as YYYY-MM-DD in the given IANA timezone. */
 export function getTodayKey(timezone: string): string {
   try {

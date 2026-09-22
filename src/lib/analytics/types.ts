@@ -1,4 +1,7 @@
 import type { Task } from "../models";
+import type { OutputTotals } from "./outputs";
+
+export type { OutputTotals, TaskOutputAnalytics } from "./outputs";
 
 export type StatusFilterValue = "completed" | "open" | "overdue" | "due_today" | "upcoming" | "unassigned";
 export type DateRangePreset = "all" | "today" | "this_week" | "this_month" | "custom";
@@ -34,7 +37,12 @@ export interface Kpis {
   overdue: number;
   dueToday: number;
   dueThisWeek: number;
-  completionRate: number; // 0-100
+  /**
+   * 0-100. Per the Output Counting Business Rule, this is
+   * Completed Outputs / Total Outputs — NOT completed tasks / total tasks.
+   * See lib/analytics/outputs.ts.
+   */
+  completionRate: number;
   unassigned: number;
 }
 
@@ -45,7 +53,14 @@ export interface SectionBreakdown {
   taskCount: number;
   shareOfTotal: number; // 0-100
   completedCount: number;
+  /** @deprecated task-based rate, kept for internal use — UI should read outputCompletionRate */
   completionRate: number; // 0-100
+  /** Section treated as Deliverable Type — output totals per the Output Counting Business Rule. */
+  outputCount: number;
+  outputShareOfTotal: number; // 0-100
+  completedOutputCount: number;
+  pendingOutputCount: number;
+  outputCompletionRate: number; // 0-100
 }
 
 export interface AssigneeWorkload {
@@ -56,7 +71,14 @@ export interface AssigneeWorkload {
   open: number;
   overdue: number;
   dueToday: number;
+  /** @deprecated task-based rate, kept for internal use — UI should read outputCompletionRate */
   completionRate: number;
+  /** Output totals per the Output Counting Business Rule (see lib/analytics/outputs.ts). */
+  outputCount: number;
+  completedOutputCount: number;
+  pendingOutputCount: number;
+  overdueOutputCount: number;
+  outputCompletionRate: number;
 }
 
 export type AgingBucketKey = "0-2" | "3-7" | "8-14" | "15-30" | "30+";
@@ -104,13 +126,20 @@ export interface TrendPoint {
   completedTasks: number;
   totalTasks: number;
   openTasks: number;
+  /** Output-counted equivalents, per the Output Counting Business Rule. */
+  completedOutputs: number;
+  totalOutputs: number;
 }
+
+export type TrendMetric = "tasks" | "outputs";
 
 export interface AnalyticsResult {
   referenceDate: string;
   filteredTaskCount: number;
   kpis: Kpis;
+  /** Sections doubling as Deliverable Types — see SectionBreakdown's output fields. */
   sections: SectionBreakdown[];
+  /** Outputs by Assignee — see AssigneeWorkload's output fields. */
   workload: AssigneeWorkload[];
   aging: AgingBucket[];
   overdueRows: OverdueRow[];
@@ -120,4 +149,6 @@ export interface AnalyticsResult {
   executiveSummary: string;
   trend: { hasEnoughData: boolean; points: TrendPoint[]; granularity: TrendGranularity };
   tasks: Task[];
+  /** Global Output Counting Business Rule totals — see lib/analytics/outputs.ts. */
+  outputs: OutputTotals;
 }

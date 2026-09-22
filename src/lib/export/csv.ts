@@ -1,5 +1,6 @@
 import type { CustomFieldDefinition, Task } from "../models";
 import { formatDate, formatDateTime } from "../utils";
+import { getOutputCount } from "../analytics/outputs";
 
 function escapeCsvCell(value: string): string {
   if (/[",\n]/.test(value)) {
@@ -24,6 +25,8 @@ export function buildTasksCsv(tasks: Task[], customFieldDefinitions: CustomField
     "Last Modified",
     "Tags",
     "Parent Task",
+    "Attachments",
+    "Output Count",
     ...customFieldDefinitions.map((f) => f.name),
     "Asana Link",
   ];
@@ -50,6 +53,8 @@ export function buildTasksCsv(tasks: Task[], customFieldDefinitions: CustomField
         formatDateTime(task.modifiedAt, locale),
         task.tags.map((t) => t.name).join("; "),
         task.parentName ?? "",
+        String(task.attachmentCount ?? 0),
+        String(getOutputCount(task)),
         ...customFieldCells,
         task.permalinkUrl,
       ])

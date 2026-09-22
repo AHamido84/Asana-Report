@@ -11,6 +11,7 @@ export type SyncStage =
   | "fetching_sections"
   | "fetching_tasks"
   | "fetching_custom_fields"
+  | "fetching_attachments"
   | "calculating"
   | "done"
   | "error";
@@ -97,6 +98,7 @@ async function runSync(): Promise<NormalizedDataset> {
   setSyncState({ stage: "fetching_sections" });
   setSyncState({ stage: "fetching_tasks" });
   setSyncState({ stage: "fetching_custom_fields" });
+  setSyncState({ stage: "fetching_attachments" });
 
   const dataset = await repository.fetchDataset();
 

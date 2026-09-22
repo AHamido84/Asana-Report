@@ -2,6 +2,7 @@ import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { DailySnapshot, NormalizedDataset } from "../models";
+import { getOutputCount } from "../analytics/outputs";
 
 /**
  * Snapshot system: persists one JSON file per day summarizing dataset
@@ -30,6 +31,8 @@ function computeSnapshot(dataset: NormalizedDataset): DailySnapshot {
   let completed = 0;
   let overdue = 0;
   let unassigned = 0;
+  let totalOutputs = 0;
+  let completedOutputs = 0;
 
   for (const task of dataset.tasks) {
     const sectionKey = task.sectionName ?? "No Section";
@@ -38,7 +41,12 @@ function computeSnapshot(dataset: NormalizedDataset): DailySnapshot {
     const assigneeKey = task.assigneeName ?? "Unassigned";
     tasksByAssignee[assigneeKey] = (tasksByAssignee[assigneeKey] ?? 0) + 1;
 
-    if (task.completed) completed += 1;
+    const outputCount = getOutputCount(task);
+    totalOutputs += outputCount;
+    if (task.completed) {
+      completed += 1;
+      completedOutputs += outputCount;
+    }
     if (!task.assigneeId) unassigned += 1;
     if (!task.completed && task.dueOn && task.dueOn < today) overdue += 1;
   }
@@ -52,6 +60,8 @@ function computeSnapshot(dataset: NormalizedDataset): DailySnapshot {
     unassignedTasks: unassigned,
     tasksBySection,
     tasksByAssignee,
+    totalOutputs,
+    completedOutputs,
   };
 }
 

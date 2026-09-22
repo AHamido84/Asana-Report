@@ -1,6 +1,7 @@
 import "server-only";
 import { AsanaClient, AsanaApiError } from "./client";
 import {
+  discoverAttachmentCounts,
   discoverCustomFieldSettings,
   discoverProject,
   discoverSections,
@@ -37,12 +38,23 @@ export class AsanaRepository {
       discoverCustomFieldSettings(this.client, this.projectGid).catch(() => []),
     ]);
 
+    // Output Count is derived from attachment count (see lib/analytics/outputs.ts).
+    // Asana has no bulk field for this, so it's one request per task — skip
+    // entirely via ASANA_FETCH_ATTACHMENTS=false on very large projects.
+    const attachmentCounts = getAsanaConfig().fetchAttachments
+      ? await discoverAttachmentCounts(
+          this.client,
+          rawTasks.map((t) => t.gid)
+        ).catch(() => new Map<string, number>())
+      : new Map<string, number>();
+
     return buildDataset({
       project,
       sections,
       rawTasks,
       customFieldSettings,
       projectGid: this.projectGid,
+      attachmentCounts,
     });
   }
 

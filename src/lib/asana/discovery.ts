@@ -1,6 +1,8 @@
 import "server-only";
 import { AsanaClient } from "./client";
+import { mapWithConcurrency } from "./concurrency";
 import type {
+  AsanaAttachmentRaw,
   AsanaCustomFieldSettingRaw,
   AsanaProjectRaw,
   AsanaSectionRaw,
@@ -135,4 +137,33 @@ export async function discoverSubtasks(
     dueOn: t.due_on ?? null,
     permalinkUrl: t.permalink_url,
   }));
+}
+
+// Asana has no bulk "attachment count per task" field on the task list
+// endpoint — attachments are only reachable one task at a time via
+// GET /tasks/:gid/attachments. This concurrency limit keeps a large project
+// from firing hundreds of simultaneous requests at Asana in one sync.
+const ATTACHMENT_FETCH_CONCURRENCY = 8;
+
+/**
+ * Fetches the attachment count for every given task GID. This is the only
+ * per-task (N+1) call in the app — required because Output Count is driven
+ * by attachment count (see lib/analytics/outputs.ts). A single task's
+ * failure (e.g. a permissions edge case on one item) does not fail the
+ * whole sync — that task's count falls back to 0.
+ */
+export async function discoverAttachmentCounts(
+  client: AsanaClient,
+  taskGids: string[]
+): Promise<Map<string, number>> {
+  const counts = await mapWithConcurrency(taskGids, ATTACHMENT_FETCH_CONCURRENCY, async (taskGid) => {
+    try {
+      const attachments = await client.getAllPages<AsanaAttachmentRaw>(`/tasks/${taskGid}/attachments`, []);
+      return [taskGid, attachments.length] as const;
+    } catch {
+      return [taskGid, 0] as const;
+    }
+  });
+
+  return new Map(counts);
 }

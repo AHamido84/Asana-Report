@@ -9,6 +9,8 @@ export interface AsanaEnvConfig {
   workspaceGid: string | null;
   boardGid: string | null;
   cacheTtlSeconds: number;
+  /** Whether to fetch per-task attachment counts (drives Output Count). Default true. */
+  fetchAttachments: boolean;
 }
 
 export interface DashboardEnvConfig {
@@ -32,6 +34,11 @@ function readTheme(raw: string | undefined): ThemeMode {
   return raw === "dark" ? "dark" : "light";
 }
 
+function readBoolean(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  return raw.trim().toLowerCase() !== "false" && raw.trim() !== "0";
+}
+
 /**
  * Reads Asana + dashboard configuration from server-side environment
  * variables. Never import this module from client components — it is
@@ -44,6 +51,7 @@ export function getAsanaConfig(): AsanaEnvConfig {
     workspaceGid: process.env.ASANA_WORKSPACE_GID?.trim() || null,
     boardGid: process.env.ASANA_BOARD_GID?.trim() || null,
     cacheTtlSeconds: readTtl(process.env.ASANA_CACHE_TTL_SECONDS, 300),
+    fetchAttachments: readBoolean(process.env.ASANA_FETCH_ATTACHMENTS, true),
   };
 }
 

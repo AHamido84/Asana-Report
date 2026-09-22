@@ -35,6 +35,7 @@ All configuration lives in `.env` (never committed — see `.gitignore`). See
 | `ASANA_WORKSPACE_GID` | optional | Auto-discovered from the project if omitted |
 | `ASANA_BOARD_GID` | optional | Reference only — sections are discovered dynamically |
 | `ASANA_CACHE_TTL_SECONDS` | optional | Server cache lifetime, default `300` |
+| `ASANA_FETCH_ATTACHMENTS` | optional | Fetch per-task attachment counts to drive Output Count (see §5a below), default `true` |
 | `DASHBOARD_DEFAULT_LOCALE` | optional | `en` or `ar`, default `en` |
 | `DASHBOARD_DEFAULT_THEME` | optional | `light` or `dark`, default `light` |
 | `DASHBOARD_TITLE` | optional | Header title text |
@@ -107,9 +108,10 @@ Discovery + Normalize  (src/lib/asana/discovery.ts, normalize.ts)
 Cache layer            (src/lib/cache/store.ts)
       │  TTL cache + in-flight de-dupe + snapshot recording on each sync
       ▼
-Analytics Engine       (src/lib/analytics/engine.ts)
+Analytics Engine       (src/lib/analytics/engine.ts + outputs.ts)
       │  pure functions: KPIs, sections, workload, aging, overdue, upcoming,
-      │  insights, executive summary, trend — all computed, nothing hardcoded
+      │  insights, executive summary, trend, and Output Counting (§5a) —
+      │  all computed, nothing hardcoded
       ▼
 API routes             (src/app/api/asana/*)
       │  status / data / sync / export / task-subtasks
@@ -137,6 +139,54 @@ Dashboard UI            (src/components/dashboard/*)
 See `src/lib/models.ts` for the full normalized shape (`Project`, `Section`,
 `Task`, `DashboardUser`, `CustomFieldDefinition`/`CustomFieldValue`, `Tag`).
 
+### 5a. The Output Counting Business Rule
+
+Every "Outputs" figure in the dashboard (KPI cards, the Outputs-by-Type table,
+Outputs-by-Assignee, Completion Rate, the executive summary, CSV/HTML exports)
+follows one rule, applied consistently everywhere:
+
+```text
+Attachments > 0  →  Output Count = number of attachments
+Attachments = 0  →  Output Count = 1   (a task still represents one expected
+                                         deliverable, even before a file is attached)
+```
+
+This is implemented **once**, as the single source of truth, in
+`src/lib/analytics/outputs.ts`:
+
+```typescript
+export function getOutputCount(task: Task): number {
+  const attachmentCount = task.attachmentCount ?? 0;
+  return attachmentCount > 0 ? attachmentCount : 1;
+}
+```
+
+No other file re-derives this number — the analytics engine, the task table,
+CSV export, and the HTML executive report all call `getOutputCount()` (or the
+aggregate `computeOutputTotals()` built on top of it) rather than counting
+attachments or tasks themselves. `computeOutputTotals()` produces every
+aggregate in one pass: `totalOutputs`, `completedOutputs`, `pendingOutputs`,
+`overdueOutputs`, `averageOutputsPerTask`, and the operational
+`tasksWithAttachments` / `tasksWithoutAttachments` / `attachmentRatio` metrics
+(the last three are explicitly **not** treated as a "Tasks Without Outputs"
+KPI, since a task without attachments is still 1 output, not 0 — see the rule
+above).
+
+**Completion Rate** is Completed Outputs ÷ Total Outputs — not completed
+tasks ÷ total tasks — per this same rule; `Kpis.completionRate` reflects this
+everywhere it's shown.
+
+**Where the attachment count comes from:** Asana's API has no bulk field for
+"attachment count per task" — attachments are only reachable one task at a
+time via `GET /tasks/:gid/attachments`. This is the one deliberate N+1 call in
+the app (see `discoverAttachmentCounts` in `src/lib/asana/discovery.ts`),
+run with a concurrency limit of 8 in-flight requests (`src/lib/asana/concurrency.ts`)
+so a large project doesn't fire hundreds of simultaneous requests at Asana in
+one sync. A single task's attachment fetch failing (e.g. a permissions edge
+case) falls back to 0 for that task rather than failing the whole sync. Set
+`ASANA_FETCH_ATTACHMENTS=false` to skip this entirely on a very large project
+— Output Count then falls back to 1 for every task everywhere.
+
 ### Asana API usage
 
 - Base URL: `https://app.asana.com/api/1.0` (`src/lib/asana/client.ts`).
@@ -145,13 +195,17 @@ See `src/lib/models.ts` for the full normalized shape (`Project`, `Section`,
   `limit=100`.
 - **A single `opt_fields`-heavy call to `/projects/:gid/tasks`** fetches name,
   status, dates, assignee, section membership, tags, custom fields, and
-  parent for every task — there is no N+1 request per task. Section
-  membership is read from `task.memberships` filtered to the configured
-  project, not assumed to equal `ASANA_BOARD_GID`.
+  parent for every task in one paginated pass. Section membership is read
+  from `task.memberships` filtered to the configured project, not assumed to
+  equal `ASANA_BOARD_GID`.
 - Subtasks are **not** bulk-fetched (would cost one request per parent task on
   a large project). They're counted (`num_subtasks`) inline, and fetched
   on-demand via `GET /api/asana/task-subtasks?taskId=...` only when a user
   drills into a specific task.
+- **The one deliberate exception** is attachment counts, which drive Output
+  Count (see §5a): Asana has no bulk field for this, so it's one
+  concurrency-limited request per task, skippable via
+  `ASANA_FETCH_ATTACHMENTS=false`.
 - 429 responses respect `Retry-After`; 5xx/network/timeout errors retry with
   exponential backoff (`src/lib/asana/client.ts`); 401/403/404 fail fast with
   a typed `AsanaApiError` that the UI renders as a specific, actionable
@@ -226,14 +280,21 @@ layers:
    `/api/asana/data` report `setup_required` correctly.
 2. **Full data pipeline** against a temporary local mock server implementing
    the same Asana REST endpoints (project/sections/tasks/custom field
-   settings, with pagination) to exercise the *exact* production code path —
-   `AsanaClient → discovery → normalize → cache → analytics engine → API
-   routes → UI` — end to end. This confirmed: pagination across multiple
-   pages, KPI math, section pipeline, team workload, aging buckets, overdue/
-   upcoming lists, CSV export (including auto-discovered custom field
+   settings/attachments, with pagination) to exercise the *exact* production
+   code path — `AsanaClient → discovery → normalize → cache → analytics
+   engine → API routes → UI` — end to end. This confirmed: pagination across
+   multiple pages, KPI math, section pipeline, team workload, aging buckets,
+   overdue/upcoming lists, CSV export (including auto-discovered custom field
    columns), the HTML executive report, KPI-click-to-filter interactivity,
    global search, dark mode, and Arabic RTL layout, all with dynamically
    computed values (no fixture numbers hardcoded into the UI).
+3. **Output Counting Business Rule** specifically: a mock dataset was seeded
+   with a deterministic, known attachment count per task (including tasks
+   with exactly 0 attachments) and cross-checked against an independent
+   hand-computed expectation (Total/Completed/Pending/Overdue Outputs,
+   Average Outputs per Task, Attachment Ratio, and the output-based
+   Completion Rate) before confirming the dashboard, CSV export, and HTML
+   report all produced matching numbers.
 
 Before pointing this at your real Asana project, re-run `npm run typecheck`,
 `npm run lint`, and `npm run build`, then verify with your own data using the
@@ -248,6 +309,10 @@ checklist in the PR/task description.
   multi-instance serverless production use.
 - **Subtasks are summarized, not expanded**, to avoid one Asana request per
   parent task on large projects; full subtask lists are fetched on demand.
+- **Attachment counts cost one request per task** (Asana has no bulk field for
+  this — see §5a), run at a concurrency of 8. On a very large project this
+  measurably lengthens a full sync; set `ASANA_FETCH_ATTACHMENTS=false` to
+  skip it (Output Count then falls back to 1 per task everywhere).
 - Custom field filters currently support `enum`/`multi_enum` types (the
   common case for board-style projects); `text`/`number`/`date` custom
   fields are still discovered and shown as table columns and in CSV export,
